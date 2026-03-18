@@ -21,9 +21,13 @@ Here's a brief overview of the steps involved:
   Fill the required fields:
     - Application name: `NodeREDGoogleDrive` 
     - Support email: your email
-        - Audience: `External` (Otherwise refresh tokens will be very short-lived and require frequent human interaction for re-authentication)
+        - Audience: `External`
   
-    > **Important:** After filling in the required fields, set the **Publishing status** to **"In production"** (button: *Publish app*). If the app remains in *Testing* status, Google will issue refresh tokens that expire after **7 days**, requiring you to re-authorize manually every week. Note: switching to *In production* requires your redirect URI to use **HTTPS**.
+        > **Important:** After filling in the required fields, set the **Publishing status** to **"In production"** (button: *Publish app*).
+        > 
+        > Google issues short-lived refresh tokens (about **7 days**) when your OAuth app is configured as **External** and remains in **Testing** status, for scopes beyond basic identity scopes (`openid`, `userinfo.email`, `userinfo.profile`). This package requests Google Drive scopes, so staying in *Testing* requires periodic re-authorization.
+        > 
+        > Note: switching to *In production* requires your redirect URI to use **HTTPS**.
 
 - Navigate to "APIs & Services" > "Clients".
 - Click on "Create Credentials" and select "OAuth 2.0 Client IDs":
