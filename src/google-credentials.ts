@@ -99,6 +99,8 @@ class GoogleCredentialsNode {
                 const refresh_token_expires_in = tokens.refresh_token_expires_in;
                 if (refresh_token_expires_in) {
                     updatedCredentials.refresh_token_expiry_date = Date.now() + refresh_token_expires_in * 1000;
+                } else {
+                    delete updatedCredentials.refresh_token_expiry_date;
                 }
 
                 GoogleCredentialsNode.RED.nodes.addCredentials(this.node.id, updatedCredentials);
@@ -196,6 +198,8 @@ class GoogleCredentialsNode {
             const refresh_token_expires_in = newTokens.refresh_token_expires_in;
             if (refresh_token_expires_in) {
                 credentials.refresh_token_expiry_date = new Date().getTime() + refresh_token_expires_in * 1000;
+            } else {
+                delete credentials.refresh_token_expiry_date;
             }
 
             console.log('[google-credentials] Access token refreshed successfully');
@@ -380,6 +384,8 @@ class GoogleCredentialsNode {
                 const refresh_token_expires_in = tokens.refresh_token_expires_in;
                 if (refresh_token_expires_in) {
                     credentials.refresh_token_expiry_date = new Date().getTime() + refresh_token_expires_in * 1000;
+                } else {
+                    delete credentials.refresh_token_expiry_date;
                 }
 
                 delete credentials.csrf_token;
