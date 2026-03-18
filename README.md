@@ -26,7 +26,7 @@ Here's a brief overview of the steps involved:
 - Navigate to "APIs & Services" > "Clients".
 - Click on "Create Credentials" and select "OAuth 2.0 Client IDs":
     - Select "Web application" as the application type.
-    - Redirect URIs: your Node-RED instance URL followed by `/google-drive/auth/callback` (e.g., `http://localhost:1880/google-drive/auth/callback`).
+    - Redirect URIs: your Node-RED instance URL followed by `/google-credentials/auth/callback` (e.g., `http://localhost:1880/google-credentials/auth/callback`).
 
 - Download the credentials JSON file and securely store it.
 
