@@ -76,10 +76,38 @@ class GoogleCredentialsNode {
         // Create the OAuth2 client
         this.oauth2Client = new OAuth2Client(credentials.client_id, credentials.client_secret, this.config.redirect_uri);
 
+        this.oauth2Client.on('tokens', async (tokens) => {
+            const currentCredentials = GoogleCredentialsNode.RED.nodes.getCredentials(this.node.id) as GoogleCredentials || {};
+            const updatedCredentials: GoogleCredentials = {
+                ...currentCredentials,
+            };
+
+            if (tokens.access_token) {
+                updatedCredentials.access_token = tokens.access_token;
+            }
+
+            if (tokens.refresh_token) {
+                updatedCredentials.refresh_token = tokens.refresh_token;
+            }
+
+            if (tokens.expiry_date) {
+                updatedCredentials.expiry_date = tokens.expiry_date;
+            }
+
+            // @ts-expect-error ignore typings here
+            const refresh_token_expires_in = tokens.refresh_token_expires_in;
+            if (refresh_token_expires_in) {
+                updatedCredentials.refresh_token_expiry_date = Date.now() + refresh_token_expires_in * 1000;
+            }
+
+            GoogleCredentialsNode.RED.nodes.addCredentials(this.node.id, updatedCredentials);
+            await this.persistCredentials(this.node.id, updatedCredentials);
+        });
+
         // Load tokens from persisted storage then sets them in the OAuth2 client
         // Also sets the credentials in the node-red credential storage
         this.readPersistedCredentials(this.node.id).then(async (persistedCredentials) => {
-            if (persistedCredentials?.access_token && persistedCredentials?.refresh_token) {
+            if (persistedCredentials?.refresh_token) {
                 // Sets the persised credentials inn the node-red credential storage. This is needed because access_token and refresh_token
                 // are stored in the runtime settings storage to be persistent across restarts, if they were autoupdated, the new values are
                 // in that storage only.
@@ -89,18 +117,29 @@ class GoogleCredentialsNode {
                 };
                 GoogleCredentialsNode.RED.nodes.addCredentials(this.node.id, credentials);
 
-                this.oauth2Client.setCredentials({
-                    access_token: credentials.access_token!,
+                const startupClientCredentials: Credentials = {
                     refresh_token: credentials.refresh_token!,
-                });
+                };
 
-                if (credentials.expiry_date && Date.now() > credentials.expiry_date) {
+                if (credentials.access_token) {
+                    startupClientCredentials.access_token = credentials.access_token;
+                }
+
+                if (credentials.expiry_date !== undefined) {
+                    startupClientCredentials.expiry_date = credentials.expiry_date;
+                }
+
+                this.oauth2Client.setCredentials(startupClientCredentials);
+
+                if (!credentials.access_token || (credentials.expiry_date && Date.now() > credentials.expiry_date)) {
                     await this.refreshToken(credentials);
                 }
             } else {
-                const errorMessage = '[google-credentials] Missing access or refresh token';
+                const errorMessage = '[google-credentials] Missing refresh token';
                 this.node.warn(errorMessage);
             }
+        }).catch((err: any) => {
+            this.node.warn(`[google-credentials] Could not read persisted credentials: ${err.message}`);
         });
 
         this.mountRoutes();
@@ -115,18 +154,33 @@ class GoogleCredentialsNode {
     public async refreshToken(credentials: GoogleCredentials) {
         try {
             console.log('[google-credentials] Refreshing access token...');
+
+            if (!credentials.refresh_token) {
+                throw new Error('Missing refresh token');
+            }
+
+            const refreshRequestCredentials: Credentials = {
+                refresh_token: credentials.refresh_token,
+            };
+
+            if (credentials.access_token) {
+                refreshRequestCredentials.access_token = credentials.access_token;
+            }
+
+            if (credentials.expiry_date !== undefined) {
+                refreshRequestCredentials.expiry_date = credentials.expiry_date;
+            }
+
+            this.oauth2Client.setCredentials(refreshRequestCredentials);
+
             const { credentials: newTokens } = await this.oauth2Client.refreshAccessToken();
 
             if (!newTokens.access_token) {
                 throw new Error('Failed to refresh access token');
             }
 
-            if (!newTokens.refresh_token) {
-                throw new Error('Failed to refresh refresh token');
-            }
-
             credentials.access_token = newTokens.access_token;
-            credentials.refresh_token = newTokens.refresh_token;
+            credentials.refresh_token = newTokens.refresh_token ?? credentials.refresh_token;
             credentials.expiry_date = newTokens.expiry_date || new Date().getTime() + 10 * 365 * 24 * 3600 * 1000; // 10 year
 
             // @ts-expect-error ignore typings here
@@ -139,7 +193,7 @@ class GoogleCredentialsNode {
 
             GoogleCredentialsNode.RED.nodes.addCredentials(this.node.id, credentials);
             this.oauth2Client.setCredentials(credentials);
-            this.persistCredentials(this.node.id, credentials);
+            await this.persistCredentials(this.node.id, credentials);
         } catch (err: any) {
             const errorMessage = `Error refreshing access token: ${err.message}`;
             this.node.error(errorMessage);
@@ -178,7 +232,7 @@ class GoogleCredentialsNode {
             refresh_token_expiry_date: credentials.refresh_token_expiry_date,
         });
 
-        storage.saveSettings(settings);
+        await storage.saveSettings(settings);
     }
 
     /**
@@ -317,7 +371,13 @@ class GoogleCredentialsNode {
                 delete credentials.csrf_token;
                 GoogleCredentialsNode.RED.nodes.addCredentials(nodeId, credentials);
 
-                this.persistCredentials(nodeId, credentials);
+                this.oauth2Client.setCredentials({
+                    access_token: credentials.access_token,
+                    refresh_token: credentials.refresh_token,
+                    expiry_date: credentials.expiry_date,
+                });
+
+                await this.persistCredentials(nodeId, credentials);
                 res.send('Authorization successful. You can close this window.');
             } catch (error: any) {
                 const errorMessage = `[google-credentials] Error exchanging code for tokens: ${error.message}`;

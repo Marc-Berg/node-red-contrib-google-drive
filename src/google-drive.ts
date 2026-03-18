@@ -92,8 +92,11 @@ class GoogleDriveNode {
         const googleCredentials = GoogleDriveNode.RED.nodes.getCredentials(this.config.googleCredentials) as GoogleCredentials;
         const googleClient = (GoogleDriveNode.RED.nodes.getNode(this.config.googleCredentials) as any)?.oauth2Client as OAuth2Client;
 
-        // Access token and client must be available 
-        if (!googleCredentials.access_token || !googleClient) {
+        const hasAccessToken = !!(googleCredentials?.access_token || googleClient?.credentials?.access_token);
+        const hasRefreshToken = !!(googleCredentials?.refresh_token || googleClient?.credentials?.refresh_token);
+
+        // OAuth2 client and at least one token path must be available
+        if (!googleClient || (!hasAccessToken && !hasRefreshToken)) {
             this.node.status({ fill: 'red', shape: 'ring', text: 'Google Credentials not set or invalid.' });
             this.node.error('Google Credentials not set or invalid. Please configure the Google Credentials node.');
             return;
