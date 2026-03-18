@@ -76,32 +76,39 @@ class GoogleCredentialsNode {
         // Create the OAuth2 client
         this.oauth2Client = new OAuth2Client(credentials.client_id, credentials.client_secret, this.config.redirect_uri);
 
-        this.oauth2Client.on('tokens', async (tokens) => {
-            const currentCredentials = GoogleCredentialsNode.RED.nodes.getCredentials(this.node.id) as GoogleCredentials || {};
-            const updatedCredentials: GoogleCredentials = {
-                ...currentCredentials,
-            };
+        this.oauth2Client.on('tokens', (tokens) => {
+            try {
+                const currentCredentials = GoogleCredentialsNode.RED.nodes.getCredentials(this.node.id) as GoogleCredentials || {};
+                const updatedCredentials: GoogleCredentials = {
+                    ...currentCredentials,
+                };
 
-            if (tokens.access_token) {
-                updatedCredentials.access_token = tokens.access_token;
+                if (tokens.access_token) {
+                    updatedCredentials.access_token = tokens.access_token;
+                }
+
+                if (tokens.refresh_token) {
+                    updatedCredentials.refresh_token = tokens.refresh_token;
+                }
+
+                if (tokens.expiry_date !== undefined && tokens.expiry_date !== null) {
+                    updatedCredentials.expiry_date = tokens.expiry_date;
+                }
+
+                // @ts-expect-error ignore typings here
+                const refresh_token_expires_in = tokens.refresh_token_expires_in;
+                if (refresh_token_expires_in) {
+                    updatedCredentials.refresh_token_expiry_date = Date.now() + refresh_token_expires_in * 1000;
+                }
+
+                GoogleCredentialsNode.RED.nodes.addCredentials(this.node.id, updatedCredentials);
+
+                void this.persistCredentials(this.node.id, updatedCredentials).catch((err: any) => {
+                    this.node.error(`[google-credentials] Failed to persist credentials: ${err.message}`);
+                });
+            } catch (err: any) {
+                this.node.error(`[google-credentials] Error handling OAuth tokens: ${err.message}`);
             }
-
-            if (tokens.refresh_token) {
-                updatedCredentials.refresh_token = tokens.refresh_token;
-            }
-
-            if (tokens.expiry_date) {
-                updatedCredentials.expiry_date = tokens.expiry_date;
-            }
-
-            // @ts-expect-error ignore typings here
-            const refresh_token_expires_in = tokens.refresh_token_expires_in;
-            if (refresh_token_expires_in) {
-                updatedCredentials.refresh_token_expiry_date = Date.now() + refresh_token_expires_in * 1000;
-            }
-
-            GoogleCredentialsNode.RED.nodes.addCredentials(this.node.id, updatedCredentials);
-            await this.persistCredentials(this.node.id, updatedCredentials);
         });
 
         // Load tokens from persisted storage then sets them in the OAuth2 client
@@ -131,7 +138,9 @@ class GoogleCredentialsNode {
 
                 this.oauth2Client.setCredentials(startupClientCredentials);
 
-                if (!credentials.access_token || (credentials.expiry_date && Date.now() > credentials.expiry_date)) {
+                const expiryDate = credentials.expiry_date;
+                const hasExpiredAccessToken = expiryDate !== undefined && expiryDate !== null && Date.now() > expiryDate;
+                if (!credentials.access_token || hasExpiredAccessToken) {
                     await this.refreshToken(credentials);
                 }
             } else {
@@ -359,7 +368,12 @@ class GoogleCredentialsNode {
                 if (!tokens.refresh_token) {
                     console.warn(`[google-credentials] No refresh token received from Google for node ID: ${nodeId}`);
                 }
-                credentials.refresh_token = tokens.refresh_token ?? credentials.refresh_token!;
+                credentials.refresh_token = tokens.refresh_token ?? credentials.refresh_token ?? null;
+                if (!credentials.refresh_token) {
+                    const message = 'Authorization failed: no refresh token received. Please re-authorize with offline access and consent.';
+                    console.error(`[google-credentials] ${message} Node ID: ${nodeId}`);
+                    return res.status(400).send(message);
+                }
                 credentials.expiry_date = tokens.expiry_date || new Date().getTime() + 10 * 365 * 24 * 3600 * 1000;
 
                 // @ts-expect-error ignore typings here
